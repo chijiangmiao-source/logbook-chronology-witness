@@ -225,6 +225,60 @@ describe('见证选取规则', () => {
   });
 });
 
+describe('大规模与性能（上限内不得指数级卡死）', () => {
+  it('60 事件 / 120 断言、2^29 条等长路径的分层图在毫秒级返回正确见证', () => {
+    // 30 层 × 每层 2 节点，相邻层 4 条全连边（29×4 = 116），闭合边 4 条。
+    // 最小负环长度 31；简单路径数 2^29，旧的全量 DFS 枚举会永久卡死。
+    const assertions: Assertion[] = [];
+    const name = (layer: number, which: number) => `e${layer}_${which}`;
+    for (let layer = 0; layer < 29; layer++) {
+      for (const a of [0, 1]) {
+        for (const b of [0, 1]) {
+          assertions.push(A(assertions.length + 1, name(layer, a), name(layer + 1, b), 0));
+        }
+      }
+    }
+    assertions.push(A(117, name(29, 0), name(0, 0), -1));
+    assertions.push(A(118, name(29, 1), name(0, 0), 100));
+    assertions.push(A(119, name(29, 1), name(0, 1), 100));
+    assertions.push(A(120, name(29, 0), name(0, 1), 100));
+
+    const t0 = Date.now();
+    const result = findNegativeCycle(assertions);
+    expect(Date.now() - t0).toBeLessThan(2000);
+
+    expect(result.kind).toBe('negative-cycle');
+    if (result.kind !== 'negative-cycle') return;
+    // 唯一负环走层间最小编号边（每层 4 条中的第 1 条）闭合于 #117。
+    const expectedIds = Array.from({ length: 29 }, (_, layer) => layer * 4 + 1);
+    expectedIds.push(117);
+    expect(result.witness.edges.map((e) => e.id)).toEqual(expectedIds);
+    expect(result.witness.total).toBe(-1);
+  });
+
+  it('60 事件 / 120 断言无负环时快速判定相容', () => {
+    const assertions: Assertion[] = [];
+    for (let i = 0; i < 60; i++) {
+      assertions.push(A(2 * i + 1, `e${i}`, `e${i}`, 0));
+      assertions.push(A(2 * i + 2, `e${i}`, `e${(i + 1) % 60}`, 100000));
+    }
+    const t0 = Date.now();
+    expect(findNegativeCycle(assertions).kind).toBe('consistent');
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  it('含空格与超长事件名的大规模批次正常参与计算', () => {
+    const longA = '第 一 个 很 长 的 航 海 事 件 名 称'.repeat(4);
+    const longB = 'b'.repeat(200);
+    const result = findNegativeCycle([
+      A(100001, longA, longB, -5),
+      A(500000, longB, longA, 1),
+    ]);
+    expect(result.kind).toBe('negative-cycle');
+    expect(idsOf(result)).toEqual([100001, 500000]);
+  });
+});
+
 describe('辅助函数', () => {
   it('normalizeCycleRotation 旋转至最小编号开头且不反转', () => {
     const cycle = [A(9, 'a', 'b', 0), A(4, 'b', 'c', 0), A(7, 'c', 'a', 0)];

@@ -5,8 +5,8 @@
  * 规则（与需求一一对应）：
  * - 编号须匹配 [1-9][0-9]{0,5}（即 1–999999，无符号、无前导零）；
  * - 编号整批唯一，按整数数值比较；
- * - 事件名区分大小写，非空即可——可含空格、长度不限，按输入原样
- *   （不裁剪空白）参与计算；
+ * - 事件名区分大小写、非空，可含空格与中文等任意 Unicode 字符，长度不限，
+ *   按原样参与计算（仅裁剪录入时误带的首尾空白）；
  * - c 为整数，范围 [-100000, 100000]；
  * - 每批 1–60 个事件、1–240 条断言；
  * - 任一非法行均阻止计算，错误就地标在该行；
@@ -39,7 +39,7 @@ export interface FieldErrors {
 export interface RowValidation {
   /** 行号，从 1 开始。 */
   row: number;
-  /** 校验用字段：编号与 c 已裁剪两端空白；事件名保留输入原样。 */
+  /** trim 后的四个字段。 */
   raw: RawRow;
   /** 四个字段全空：视为未使用，忽略。 */
   empty: boolean;
@@ -64,11 +64,10 @@ export function hasErrors(errors: FieldErrors): boolean {
 }
 
 function validateRow(row: number, input: RawRow): RowValidation {
-  // 编号与 c 裁剪两端空白；事件名按原样保留（含空格，不裁剪）。
   const raw: RawRow = {
     id: input.id.trim(),
-    u: input.u,
-    v: input.v,
+    u: input.u.trim(),
+    v: input.v.trim(),
     c: input.c.trim(),
   };
   const empty = raw.id === '' && raw.u === '' && raw.v === '' && raw.c === '';

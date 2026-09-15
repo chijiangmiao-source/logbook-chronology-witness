@@ -54,26 +54,32 @@ describe('逐行字段校验', () => {
     expect(batch.assertions[0].v).toBe('foo');
   });
 
-  it('事件名允许中文，且可含空格、可超过 32 字符，按原样参与计算', () => {
-    const long = '泊'.repeat(40);
-    const batch = validateBatch([row('1', '靠港 3 号泊位', long, '0')]);
-    expect(batch.ok).toBe(true);
-    expect(batch.assertions[0].u).toBe('靠港 3 号泊位');
-    expect(batch.assertions[0].v).toBe(long);
+  it('事件名允许中文、空格与超长名称，并按原样参与计算', () => {
+    expect(validateBatch([row('1', '靠港', '离港', '0')]).ok).toBe(true);
+
+    const spaced = validateBatch([row('1', '开船 第一天', '靠港 补给', '0')]);
+    expect(spaced.ok).toBe(true);
+    expect(spaced.assertions[0].u).toBe('开船 第一天');
+    expect(spaced.assertions[0].v).toBe('靠港 补给');
+
+    const longName = '航'.repeat(64) + ' 记录';
+    const longBatch = validateBatch([row('1', longName, '离港', '0')]);
+    expect(longBatch.ok).toBe(true);
+    expect(longBatch.assertions[0].u).toBe(longName);
+
+    // 含空格的名称同样按原样判重：整批同一名称出现两次字段均合法。
+    const same = validateBatch([
+      row('1', '风暴 夜航', 'a', '0'),
+      row('2', 'a', '风暴 夜航', '0'),
+    ]);
+    expect(same.ok).toBe(true);
+    expect(new Set(same.assertions.flatMap((a) => [a.u, a.v])).size).toBe(2);
   });
 
-  it('事件名不裁剪空白：含前后空白的名字按原样保留并区分', () => {
-    const batch = validateBatch([row('1', ' 靠港 ', '靠港', '0')]);
-    expect(batch.ok).toBe(true);
-    expect(batch.assertions[0].u).toBe(' 靠港 ');
-    expect(batch.assertions[0].v).toBe('靠港');
-  });
-
-  it('事件名为空时就地标错', () => {
-    const batch = validateBatch([row('1', '', '离港', '0'), row('2', '靠港', '', '0')]);
+  it('事件名仅为空白时视为未填写并就地标错', () => {
+    const batch = validateBatch([row('1', '   ', '离港', '0')]);
     expect(batch.ok).toBe(false);
-    expect(batch.rows[0].errors.u).toBeTruthy();
-    expect(batch.rows[1].errors.v).toBeTruthy();
+    expect(batch.rows[0].errors.u).toBe('请输入起始事件 u');
   });
 
   it.each([String(C_MIN), String(C_MAX), '0', '-1', '42'])('接受范围内整数 c = %j', (c) => {
@@ -100,10 +106,10 @@ describe('逐行字段校验', () => {
     expect(batch.ok).toBe(false);
   });
 
-  it('编号与 c 裁剪两端空白，事件名保留原样', () => {
+  it('字段两端空白会被裁剪后校验', () => {
     const batch = validateBatch([row(' 3 ', ' 靠港 ', ' 补给 ', ' -2 ')]);
     expect(batch.ok).toBe(true);
-    expect(batch.assertions[0]).toMatchObject({ id: 3, u: ' 靠港 ', v: ' 补给 ', c: -2 });
+    expect(batch.assertions[0]).toMatchObject({ id: 3, u: '靠港', v: '补给', c: -2 });
   });
 });
 

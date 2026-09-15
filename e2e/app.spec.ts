@@ -108,6 +108,29 @@ test('部分填写的行视为非法行并阻止计算', async ({ page }) => {
   await expect(page.getByTestId('compute-button')).toBeDisabled();
 });
 
+test('含空格与超长的事件名按原样参与计算并得到矛盾链', async ({ page }) => {
+  const longName = '第 三 次 远 洋 航 行 日 志'.repeat(6); // 96 字且含空格
+  await page.getByTestId('row-0-id').fill('1');
+  await page.getByTestId('row-0-u').fill('启航 码头');
+  await page.getByTestId('row-0-v').fill(longName);
+  await page.getByTestId('row-0-c').fill('-5');
+
+  await page.getByTestId('row-1-id').fill('2');
+  await page.getByTestId('row-1-u').fill(longName);
+  await page.getByTestId('row-1-v').fill('启航 码头');
+  await page.getByTestId('row-1-c').fill('1');
+
+  // 含空格 / 超长名称不被判错，按钮可用。
+  await expect(page.getByTestId('row-0-u-error')).toHaveCount(0);
+  await expect(page.getByTestId('row-0-v-error')).toHaveCount(0);
+  await expect(page.getByTestId('compute-button')).toBeEnabled();
+
+  await page.getByTestId('compute-button').click();
+  await expect(page.getByTestId('result-cycle')).toBeVisible();
+  await expect(page.getByTestId('cycle-step-0')).toContainText(`date(${longName}) − date(启航 码头) ≤ -5`);
+  await expect(page.getByTestId('cycle-total')).toContainText('累计总和 = -4');
+});
+
 test('输入变化后旧结论被清除', async ({ page }) => {
   await page.getByTestId('load-negative').click();
   await page.getByTestId('compute-button').click();
