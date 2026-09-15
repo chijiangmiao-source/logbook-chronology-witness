@@ -5,8 +5,9 @@
  * 规则（与需求一一对应）：
  * - 编号须匹配 [1-9][0-9]{0,5}（即 1–999999，无符号、无前导零）；
  * - 编号整批唯一，按整数数值比较；
- * - 事件名区分大小写、非空，可含空格与中文等任意 Unicode 字符，长度不限，
- *   按原样参与计算（仅裁剪录入时误带的首尾空白）；
+ * - 事件名区分大小写、非空，可含空格（含首尾空格）与中文等任意 Unicode 字符，
+ *   长度不限，完全按录入原样参与计算（不做任何裁剪或归一化；" 靠港 " 与 "靠港"
+ *   是两个不同事件）；
  * - c 为整数，范围 [-100000, 100000]；
  * - 每批 1–60 个事件、1–240 条断言；
  * - 任一非法行均阻止计算，错误就地标在该行；
@@ -39,7 +40,7 @@ export interface FieldErrors {
 export interface RowValidation {
   /** 行号，从 1 开始。 */
   row: number;
-  /** trim 后的四个字段。 */
+  /** 规整后的字段：id、c 已裁剪首尾空白；u、v 完全保持录入原样。 */
   raw: RawRow;
   /** 四个字段全空：视为未使用，忽略。 */
   empty: boolean;
@@ -64,13 +65,20 @@ export function hasErrors(errors: FieldErrors): boolean {
 }
 
 function validateRow(row: number, input: RawRow): RowValidation {
+  // id、c 裁剪首尾空白后按严格模式校验；u、v 必须完全保持录入原样：
+  // 首尾空格也是事件名的一部分，" 靠港 " 与 "靠港" 是两个不同事件，
+  // 裁剪会把它们错误合并，甚至拼出录入中不存在的矛盾链。
   const raw: RawRow = {
     id: input.id.trim(),
-    u: input.u.trim(),
-    v: input.v.trim(),
+    u: input.u,
+    v: input.v,
     c: input.c.trim(),
   };
-  const empty = raw.id === '' && raw.u === '' && raw.v === '' && raw.c === '';
+  // 全空行与“是否填写”的判定对 u、v 用 trim：纯空白视同未填写，
+  // 但一旦含有非空白字符，整个原名（含首尾空格）原样保留。
+  const uBlank = raw.u.trim() === '';
+  const vBlank = raw.v.trim() === '';
+  const empty = raw.id === '' && uBlank && vBlank && raw.c === '';
   const errors: FieldErrors = {};
   let assertion: Assertion | null = null;
 
@@ -81,11 +89,11 @@ function validateRow(row: number, input: RawRow): RowValidation {
       errors.id = '编号须匹配 [1-9][0-9]{0,5}（1–999999 的整数，无前导零）';
     }
 
-    if (raw.u === '') {
+    if (uBlank) {
       errors.u = '请输入起始事件 u';
     }
 
-    if (raw.v === '') {
+    if (vBlank) {
       errors.v = '请输入结束事件 v';
     }
 

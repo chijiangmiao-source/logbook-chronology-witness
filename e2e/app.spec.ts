@@ -142,6 +142,25 @@ test('输入变化后旧结论被清除', async ({ page }) => {
   await expect(page.getByTestId('result-consistent')).toBeVisible();
 });
 
+test('首尾空格是事件名的一部分：不与无空格名称合并，不显示不存在的矛盾链', async ({ page }) => {
+  // #1: 靠港 → 补给 (-5)；#2: 补给 → ' 靠港 ' (1)。
+  // 终点 ' 靠港 ' 与起点 '靠港' 是两个不同事件，两断言不闭合，必须相容。
+  await page.getByTestId('row-0-id').fill('1');
+  await page.getByTestId('row-0-u').fill('靠港');
+  await page.getByTestId('row-0-v').fill('补给');
+  await page.getByTestId('row-0-c').fill('-5');
+
+  await page.getByTestId('row-1-id').fill('2');
+  await page.getByTestId('row-1-u').fill('补给');
+  await page.getByTestId('row-1-v').fill(' 靠港 ');
+  await page.getByTestId('row-1-c').fill('1');
+
+  await expect(page.getByTestId('compute-button')).toBeEnabled();
+  await page.getByTestId('compute-button').click();
+  await expect(page.getByTestId('result-consistent')).toBeVisible();
+  await expect(page.getByTestId('result-cycle')).toHaveCount(0);
+});
+
 test('含空格与超长字符的事件名按原样参与计算', async ({ page }) => {
   const spaced = '靠港 3 号泊位';
   const longName = `${'泊'.repeat(40)}码头`;

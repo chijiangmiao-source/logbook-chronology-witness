@@ -7,6 +7,7 @@ import {
   validateBatch,
   type RawRow,
 } from './parse';
+import { findNegativeCycle } from './solver';
 
 const row = (id: string, u: string, v: string, c: string): RawRow => ({ id, u, v, c });
 const blank = (): RawRow => ({ id: '', u: '', v: '', c: '' });
@@ -106,10 +107,33 @@ describe('逐行字段校验', () => {
     expect(batch.ok).toBe(false);
   });
 
-  it('字段两端空白会被裁剪后校验', () => {
+  it('id 与 c 两端空白会被裁剪；事件名首尾空白原样保留', () => {
     const batch = validateBatch([row(' 3 ', ' 靠港 ', ' 补给 ', ' -2 ')]);
     expect(batch.ok).toBe(true);
-    expect(batch.assertions[0]).toMatchObject({ id: 3, u: '靠港', v: '补给', c: -2 });
+    expect(batch.assertions[0]).toMatchObject({ id: 3, u: ' 靠港 ', v: ' 补给 ', c: -2 });
+  });
+
+  it('事件名首尾空格是名称的一部分：不与无空格名称合并，不拼出不存在的矛盾链', () => {
+    // 录入中只有 '靠港' 和 ' 靠港 '（带首尾空格）两个不同事件，二者不得被合并成环。
+    const batch = validateBatch([
+      row('1', '靠港', '补给', '-5'),
+      row('2', '补给', ' 靠港 ', '1'),
+    ]);
+    expect(batch.ok).toBe(true);
+    const eventNames = [...new Set(batch.assertions.flatMap((a) => [a.u, a.v]))];
+    expect(eventNames).toContain('靠港');
+    expect(eventNames).toContain(' 靠港 ');
+    expect(eventNames.sort()).toEqual([' 靠港 ', '补给', '靠港']);
+    // 两断言并不闭合（终点是不同事件），故约束相容，不能显示矛盾链。
+    expect(findNegativeCycle(batch.assertions).kind).toBe('consistent');
+
+    // 只有当另一行也逐字录入 ' 靠港 ' 时才真正闭合为负环。
+    const closed = validateBatch([
+      row('1', ' 靠港 ', '补给', '-5'),
+      row('2', '补给', ' 靠港 ', '1'),
+    ]);
+    expect(closed.ok).toBe(true);
+    expect(findNegativeCycle(closed.assertions).kind).toBe('negative-cycle');
   });
 });
 
