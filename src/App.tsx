@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   C_MAX,
   C_MIN,
+  C_PATTERN,
   MAX_ASSERTIONS,
   MAX_EVENTS,
   hasErrors,
@@ -9,8 +10,10 @@ import {
   type RawRow,
 } from './lib/parse';
 import { findNegativeCycle } from './lib/solver';
+import { analyzeTightening, type TightenAnalysis } from './lib/tighten';
 import type { SolveResult } from './lib/types';
 import { ResultPanel } from './components/ResultPanel';
+import { TightenPanel } from './components/TightenPanel';
 
 interface RowState extends RawRow {
   key: number;
@@ -37,24 +40,102 @@ const CONSISTENT_EXAMPLE: RawRow[] = [
 export default function App() {
   const [rows, setRows] = useState<RowState[]>(() => [emptyRow(), emptyRow(), emptyRow()]);
   const [result, setResult] = useState<SolveResult | null>(null);
+  // 修订预演状态：preview 记录最近一次预演结果及其目标行 key（用于识别
+  // 删除目标行）；previewStale 记录作废原因，用于就地反馈。
+  const [previewTargetId, setPreviewTargetId] = useState<number | null>(null);
+  const [previewC, setPreviewC] = useState('');
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ analysis: TightenAnalysis; rowKey: number } | null>(
+    null,
+  );
+  const [previewStale, setPreviewStale] = useState<string | null>(null);
 
   const batch = useMemo(() => validateBatch(rows), [rows]);
   const filledCount = batch.rows.filter((r) => !r.empty).length;
   const eventCount = new Set(batch.assertions.flatMap((a) => [a.u, a.v])).size;
 
+  /** 录入表一旦变化，旧结论与进行中的预演一并作废，并就地反馈作废原因。 */
+  const invalidateOnEdit = (staleMessage: string) => {
+    setResult(null);
+    if (preview !== null) {
+      setPreview(null);
+      setPreviewStale(staleMessage);
+    }
+  };
+
   const mutate = (updater: (prev: RowState[]) => RowState[]) => {
-    setResult(null); // 输入一旦变化，旧结论作废，避免展示过期矛盾链。
+    invalidateOnEdit('录入表已变化，此前的修订预演已作废，请重新考证并预演。');
     setRows(updater);
   };
   const updateField = (key: number, field: keyof RawRow, value: string) =>
     mutate((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
   const addRow = () => mutate((prev) => [...prev, emptyRow()]);
-  const removeRow = (key: number) => mutate((prev) => prev.filter((r) => r.key !== key));
+  const removeRow = (key: number) => {
+    invalidateOnEdit(
+      preview !== null && preview.rowKey === key
+        ? '目标断言所在行已被删除，修订预演作废。'
+        : '录入表已变化，此前的修订预演已作废，请重新考证并预演。',
+    );
+    setRows((prev) => prev.filter((r) => r.key !== key));
+  };
   const loadRows = (raws: RawRow[]) => mutate(() => raws.map(fromRaw));
 
   const compute = () => {
     if (!batch.ok) return;
+    setPreviewStale(null); // 重新考证后，旧作废提示不再适用。
     setResult(findNegativeCycle(batch.assertions));
+  };
+
+  /** 预演输入（目标断言 / 新 c）变化：旧预演结果不再对应，静默清除。 */
+  const changePreviewTarget = (id: number | null) => {
+    setPreviewTargetId(id);
+    setPreview(null);
+    setPreviewError(null);
+  };
+  const changePreviewC = (text: string) => {
+    setPreviewC(text);
+    setPreview(null);
+    setPreviewError(null);
+  };
+
+  const runPreview = () => {
+    const target = batch.assertions.find((a) => a.id === previewTargetId);
+    if (target === undefined) {
+      setPreviewError('请选择要修订的断言。');
+      return;
+    }
+    const text = previewC.trim();
+    if (!C_PATTERN.test(text)) {
+      setPreviewError('新 c 须为整数（形如 -3、0、42）。');
+      return;
+    }
+    const value = Number(text);
+    if (value < C_MIN || value > C_MAX) {
+      setPreviewError(`新 c 须在 ${C_MIN} 至 ${C_MAX} 之间。`);
+      return;
+    }
+    if (value > target.c) {
+      setPreviewError(`新 c 须不大于原值 ${target.c}（收紧只能减小或保持不变）。`);
+      return;
+    }
+    setPreviewError(null);
+    setPreviewStale(null);
+    setPreview({
+      analysis: analyzeTightening(batch.assertions, target.id, value),
+      rowKey: rows[target.row - 1].key,
+    });
+  };
+
+  /** 预演判为安全后的一键写回：更新该行 c、清除旧考证结论与预演。 */
+  const writeBackPreview = () => {
+    if (preview === null || !preview.analysis.safe) return;
+    const { target, proposedC } = preview.analysis;
+    setRows((prev) =>
+      prev.map((r, i) => (i === target.row - 1 ? { ...r, c: String(proposedC) } : r)),
+    );
+    setResult(null);
+    setPreview(null);
+    setPreviewStale(null);
   };
 
   return (
@@ -217,6 +298,26 @@ export default function App() {
       </section>
 
       {result && <ResultPanel result={result} />}
+
+      {result?.kind === 'consistent' && (
+        <TightenPanel
+          assertions={batch.assertions}
+          targetId={previewTargetId}
+          cText={previewC}
+          error={previewError}
+          preview={preview?.analysis ?? null}
+          onTargetChange={changePreviewTarget}
+          onCTextChange={changePreviewC}
+          onRun={runPreview}
+          onWriteBack={writeBackPreview}
+        />
+      )}
+
+      {previewStale !== null && (
+        <p className="preview-stale" role="status" data-testid="preview-stale">
+          {previewStale}
+        </p>
+      )}
     </main>
   );
 }

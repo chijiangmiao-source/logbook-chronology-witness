@@ -254,3 +254,77 @@ button.compute:hover:not(:disabled) {
 .conclusion {
   font-weight: 600;
 }
+
+.preview {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 22px;
+  line-height: 1.8;
+}
+
+.preview h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 10px;
+}
+
+.preview-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.preview-controls select,
+.preview-controls input {
+  font: inherit;
+  color: var(--ink);
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  max-width: 320px;
+}
+
+.preview-result {
+  margin-top: 14px;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.preview-result.safe {
+  border: 1px solid var(--good);
+  background: var(--good-bg);
+}
+
+.preview-result.unsafe {
+  border: 1px solid var(--bad);
+  background: var(--bad-bg);
+}
+
+.preview-result.unsafe .conclusion {
+  color: var(--bad);
+}
+
+.preview-result .chain {
+  margin: 10px 0;
+}
+
+.preview-stale {
+  margin-top: 16px;
+  border: 1px solid #b8860b;
+  background: #fff8e1;
+  color: #7a5b00;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
