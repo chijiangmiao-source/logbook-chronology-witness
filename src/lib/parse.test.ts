@@ -54,13 +54,26 @@ describe('逐行字段校验', () => {
     expect(batch.assertions[0].v).toBe('foo');
   });
 
-  it('事件名允许中文等非空白字符，拒绝含空白或超长名', () => {
-    expect(validateBatch([row('1', '靠港', '离港', '0')]).ok).toBe(true);
-    const spaced = validateBatch([row('1', '靠 港', '离港', '0')]);
-    expect(spaced.ok).toBe(false);
-    expect(spaced.rows[0].errors.u).toBeTruthy();
-    const tooLong = validateBatch([row('1', 'x'.repeat(33), '离港', '0')]);
-    expect(tooLong.rows[0].errors.u).toBeTruthy();
+  it('事件名允许中文，且可含空格、可超过 32 字符，按原样参与计算', () => {
+    const long = '泊'.repeat(40);
+    const batch = validateBatch([row('1', '靠港 3 号泊位', long, '0')]);
+    expect(batch.ok).toBe(true);
+    expect(batch.assertions[0].u).toBe('靠港 3 号泊位');
+    expect(batch.assertions[0].v).toBe(long);
+  });
+
+  it('事件名不裁剪空白：含前后空白的名字按原样保留并区分', () => {
+    const batch = validateBatch([row('1', ' 靠港 ', '靠港', '0')]);
+    expect(batch.ok).toBe(true);
+    expect(batch.assertions[0].u).toBe(' 靠港 ');
+    expect(batch.assertions[0].v).toBe('靠港');
+  });
+
+  it('事件名为空时就地标错', () => {
+    const batch = validateBatch([row('1', '', '离港', '0'), row('2', '靠港', '', '0')]);
+    expect(batch.ok).toBe(false);
+    expect(batch.rows[0].errors.u).toBeTruthy();
+    expect(batch.rows[1].errors.v).toBeTruthy();
   });
 
   it.each([String(C_MIN), String(C_MAX), '0', '-1', '42'])('接受范围内整数 c = %j', (c) => {
@@ -87,10 +100,10 @@ describe('逐行字段校验', () => {
     expect(batch.ok).toBe(false);
   });
 
-  it('字段两端空白会被裁剪后校验', () => {
+  it('编号与 c 裁剪两端空白，事件名保留原样', () => {
     const batch = validateBatch([row(' 3 ', ' 靠港 ', ' 补给 ', ' -2 ')]);
     expect(batch.ok).toBe(true);
-    expect(batch.assertions[0]).toMatchObject({ id: 3, u: '靠港', v: '补给', c: -2 });
+    expect(batch.assertions[0]).toMatchObject({ id: 3, u: ' 靠港 ', v: ' 补给 ', c: -2 });
   });
 });
 

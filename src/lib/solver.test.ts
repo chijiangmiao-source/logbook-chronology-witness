@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareIdSequences, findNegativeCycle, normalizeCycleRotation } from './solver';
+import { findNegativeCycle } from './solver';
 import type { Assertion } from './types';
 
 const A = (id: number, u: string, v: string, c: number): Assertion => ({ id, u, v, c, row: id });
@@ -8,6 +8,24 @@ const idsOf = (result: ReturnType<typeof findNegativeCycle>): number[] => {
   if (result.kind !== 'negative-cycle') throw new Error('期望负环，实际为相容');
   return result.witness.edges.map((e) => e.id);
 };
+
+/** 沿原方向旋转，使环以最小断言编号开头（参考实现用）。 */
+function normalizeCycleRotation(edges: Assertion[]): Assertion[] {
+  let minIndex = 0;
+  for (let i = 1; i < edges.length; i++) {
+    if (edges[i].id < edges[minIndex].id) minIndex = i;
+  }
+  return [...edges.slice(minIndex), ...edges.slice(0, minIndex)];
+}
+
+/** 按整数数值比较两个编号序列的字典序（参考实现用）。 */
+function compareIdSequences(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
+}
 
 describe('负环探测', () => {
   it('空断言集相容', () => {
@@ -174,6 +192,36 @@ describe('见证选取规则', () => {
     expect(idsOf(result)).toEqual([3, 4]);
     if (result.kind !== 'negative-cycle') return;
     expect(result.witness.total).toBe(-3);
+  });
+
+  it('含空格与超长字符的事件名按原样参与计算', () => {
+    const spaced = '靠港 3 号泊位';
+    const long = '泊'.repeat(40);
+    const result = findNegativeCycle([A(1, spaced, long, -2), A(2, long, spaced, 1)]);
+    expect(result.kind).toBe('negative-cycle');
+    expect(idsOf(result)).toEqual([1, 2]);
+    if (result.kind !== 'negative-cycle') return;
+    expect(result.witness.edges[0].u).toBe(spaced);
+    expect(result.witness.edges[0].v).toBe(long);
+  });
+
+  it('上限规模性能回归：60 事件 / 120 断言（60 环 + 60 平行边）即时完成', () => {
+    // 唯一的简单环是 60 环，但每个位置有两条平行边：朴素枚举需面对 2^60 种组合。
+    const assertions: Assertion[] = [];
+    for (let i = 0; i < 60; i++) {
+      assertions.push(A(i + 1, `e${i}`, `e${(i + 1) % 60}`, i === 0 ? -1 : 0));
+    }
+    for (let i = 0; i < 60; i++) {
+      assertions.push(A(61 + i, `e${i}`, `e${(i + 1) % 60}`, 5));
+    }
+    const start = performance.now();
+    const result = findNegativeCycle(assertions);
+    const elapsed = performance.now() - start;
+    expect(result.kind).toBe('negative-cycle');
+    expect(idsOf(result)).toEqual(Array.from({ length: 60 }, (_, i) => i + 1));
+    if (result.kind !== 'negative-cycle') return;
+    expect(result.witness.total).toBe(-1);
+    expect(elapsed).toBeLessThan(1000);
   });
 });
 

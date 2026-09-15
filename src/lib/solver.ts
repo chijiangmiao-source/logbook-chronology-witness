@@ -6,13 +6,20 @@
  *
  * 1. 见证是权重和小于零的有向【简单】环：除闭合首尾外事件不重复，
  *    断言自然也不重复（同一断言若在环上出现两次必然重复事件）。
- * 2. 在所有负简单环中先取边数最少者：
- *    边数最少的负【闭途径】必为简单环（否则可拆成两个更短闭途径，
- *    至少一个为负，矛盾），故用 min-plus 矩阵幂逐阶检查对角线即可
- *    得到最小边数 k；此时所有长度为 k 的负闭途径都是简单环。
- * 3. 并列候选沿原方向旋转至最小编号开头（禁止反转），再按编号整数
- *    序列字典序取最小者。编号整批唯一，故最小者唯一，结果稳定，
- *    与平行边、自环、多环的存在无关。
+ * 2. 边数最少：边数最少的负【闭途径】必为简单环（否则可拆成两个更短闭途径，
+ *    至少一个为负，矛盾）。故用 min-plus 矩阵幂逐阶检查对角线即可得到最小
+ *    边数 k；此时所有长度为 k 的负闭途径都是简单环。
+ * 3. 并列取舍（多项式时间，不枚举）：由于最小长度 k 上“负闭途径”与“负简单环”
+ *    等价，“是否存在经过指定前缀、长度恰好 k 的负闭途径”可用矩阵幂 O(1)
+ *    判定，且该判定对简单环同样精确（判定成立时，补全出的负闭途径自动是
+ *    简单环）。于是逐位贪心构造字典序最小的规范化编号序列：
+ *      - 首位：出现在某负闭途径中的最小编号断言，即环上最小编号；
+ *      - 后续每位：当前结点出边中，满足 “已累权重 + c + 剩余步数内回到
+ *        起点的最小权重 < 0” 的最小编号。
+ *    结果天然以最小断言编号开头（沿原方向，未做反转）。编号整批唯一，
+ *    故最小者唯一——平行边、自环、多环并存时结果稳定，与输入行序无关。
+ *
+ * 全程 O(n^3·k + k·E)：60 事件 / 240 断言的上限规模瞬时完成。
  */
 import type { Assertion, NegativeCycleWitness, SolveResult } from './types';
 
@@ -37,24 +44,6 @@ function minPlusMultiply(a: number[][], b: number[][]): number[][] {
   return out;
 }
 
-/** 按整数数值比较两个编号序列的字典序。 */
-export function compareIdSequences(a: number[], b: number[]): number {
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    if (a[i] !== b[i]) return a[i] - b[i];
-  }
-  return a.length - b.length;
-}
-
-/** 沿原方向旋转，使环以最小断言编号开头；不改变方向、不重排边。 */
-export function normalizeCycleRotation(edges: Assertion[]): Assertion[] {
-  let minIndex = 0;
-  for (let i = 1; i < edges.length; i++) {
-    if (edges[i].id < edges[minIndex].id) minIndex = i;
-  }
-  return [...edges.slice(minIndex), ...edges.slice(0, minIndex)];
-}
-
 /**
  * 在断言图上求证。断言须已通过整批校验（编号唯一等）。
  * 返回约束相容，或一个满足全部选取规则的负环见证。
@@ -67,7 +56,7 @@ export function findNegativeCycle(assertions: Assertion[]): SolveResult {
   const n = events.length;
   const indexOf = new Map(events.map((name, i) => [name, i] as const));
 
-  // min-plus 邻接矩阵：平行边取最小权重用于下界与最小边数判定。
+  // min-plus 邻接矩阵：平行边取最小权重用于最小边数判定与可行性下界。
   const matrix: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(Infinity));
   for (const a of assertions) {
     const i = indexOf.get(a.u)!;
@@ -75,9 +64,13 @@ export function findNegativeCycle(assertions: Assertion[]): SolveResult {
     if (a.c < matrix[i][j]) matrix[i][j] = a.c;
   }
 
-  // 逐阶计算精确步数幂 P_k = M^k，(P_k)[i][i] < 0 即存在长度为 k 的负闭途径。
-  // 首个使对角线变负的 k 就是负简单环的最小边数。
-  const powers: number[][][] = [];
+  // 精确步数幂 powers[r] = M^r（恰好 r 步的最小权重）；powers[0] 为单位阵。
+  // 首个使对角线出现负值的 k 即负简单环的最小边数。
+  const powers: number[][][] = [
+    Array.from({ length: n }, (_, i) =>
+      Array.from({ length: n }, (_, j) => (i === j ? 0 : Infinity)),
+    ),
+  ];
   let kMin = -1;
   let current = matrix;
   for (let k = 1; k <= n; k++) {
@@ -93,68 +86,58 @@ export function findNegativeCycle(assertions: Assertion[]): SolveResult {
   }
   if (kMin === -1) return { kind: 'consistent' };
 
-  // 出边表：按编号升序，保证枚举顺序确定（最小值选取与枚举顺序无关）。
+  // 出边表与全表均按编号升序，供贪心逐位取最小可行编号。
+  const byId = [...assertions].sort((p, q) => p.id - q.id);
   const outgoing: Assertion[][] = Array.from({ length: n }, () => []);
-  for (const a of assertions) outgoing[indexOf.get(a.u)!].push(a);
-  for (const list of outgoing) list.sort((p, q) => p.id - q.id);
+  for (const a of byId) outgoing[indexOf.get(a.u)!].push(a);
 
-  // 用持有对象收集最优候选：属性不会被闭包赋值的控制流分析误判。
-  const best: { edges: Assertion[] | null; seq: number[] | null } = { edges: null, seq: null };
-  const consider = (path: Assertion[]): void => {
-    const rotated = normalizeCycleRotation(path);
-    const seq = rotated.map((a) => a.id);
-    if (best.seq === null || compareIdSequences(seq, best.seq) < 0) {
-      best.edges = rotated;
-      best.seq = seq;
+  // 首位：出现在某长度为 kMin 的负闭途径中的最小编号断言。
+  // 断言 e = (u -> v, c) 出现在其中 ⟺ c + (kMin-1 步从 v 回 u 的最小权重) < 0。
+  let first: Assertion | null = null;
+  for (const a of byId) {
+    const u = indexOf.get(a.u)!;
+    const v = indexOf.get(a.v)!;
+    if (a.c + powers[kMin - 1][v][u] < 0) {
+      first = a;
+      break;
     }
-  };
-
-  // 枚举所有长度为 kMin、权重和为负的简单环。
-  // 剪枝：powers[r-1][x][s] 是从 x 恰好 r 步回到 s 的最小权重（允许重复的
-  // 途径，因而是简单路径权重的下界）；若 当前权重 + 下界 >= 0 则不可能成负环。
-  const path: Assertion[] = [];
-  for (let s = 0; s < n; s++) {
-    const visited = new Array<boolean>(n).fill(false);
-    visited[s] = true;
-    const dfs = (x: number, weight: number): void => {
-      const remaining = kMin - path.length;
-      if (remaining === 0) {
-        if (x === s && weight < 0) consider(path.slice());
-        return;
-      }
-      const lowerBound = powers[remaining - 1][x][s];
-      if (!Number.isFinite(lowerBound) || weight + lowerBound >= 0) return;
-      for (const edge of outgoing[x]) {
-        const y = indexOf.get(edge.v)!;
-        if (y === s) {
-          // 仅当这是最后一条边时才能闭合成简单环；提前回到 s 会重复事件。
-          if (remaining !== 1) continue;
-          path.push(edge);
-          dfs(y, weight + edge.c);
-          path.pop();
-          continue;
-        }
-        if (visited[y]) continue;
-        visited[y] = true;
-        path.push(edge);
-        dfs(y, weight + edge.c);
-        path.pop();
-        visited[y] = false;
-      }
-    };
-    dfs(s, 0);
+  }
+  if (first === null) {
+    // 逻辑上不可达：kMin 已保证存在负闭途径，其上的断言都满足该判定。
+    throw new Error('内部错误：已探测到负环，但找不到首条边');
   }
 
-  if (best.edges === null || best.seq === null) {
-    // 逻辑上不可达：kMin 已保证存在负闭途径，而它必为简单环且会被枚举到。
-    throw new Error('内部错误：已探测到负环，但枚举候选为空');
+  // 逐位贪心：不变式为“当前前缀可补全成长度 kMin 的负闭途径（即负简单环）”。
+  // 每步取当前结点出边中满足补全条件的最小编号；补全条件成立时，
+  // 由矩阵幂补全出的负闭途径自动是简单环，故不会走入死路或重复事件。
+  const startIdx = indexOf.get(first.u)!;
+  const edges: Assertion[] = [first];
+  let x = indexOf.get(first.v)!;
+  let weight = first.c;
+  for (let step = 2; step <= kMin; step++) {
+    const remaining = kMin - step; // 走完本条边后剩余的步数
+    let chosen: Assertion | null = null;
+    for (const e of outgoing[x]) {
+      const y = indexOf.get(e.v)!;
+      if (weight + e.c + powers[remaining][y][startIdx] < 0) {
+        chosen = e;
+        break;
+      }
+    }
+    if (chosen === null) {
+      // 逻辑上不可达：不变式保证至少一条出边可行。
+      throw new Error('内部错误：负环构造中断');
+    }
+    edges.push(chosen);
+    weight += chosen.c;
+    x = indexOf.get(chosen.v)!;
   }
 
   let cumulative = 0;
-  const steps = best.edges.map((assertion) => {
+  const steps = edges.map((assertion) => {
     cumulative += assertion.c;
     return { assertion, cumulative };
   });
-  const witness: NegativeCycleWitness = { edges: best.edges, total: cumulative, steps };
+  const witness: NegativeCycleWitness = { edges, total: cumulative, steps };
   return { kind: 'negative-cycle', witness };
 }

@@ -118,3 +118,53 @@ test('输入变化后旧结论被清除', async ({ page }) => {
   await page.getByTestId('compute-button').click();
   await expect(page.getByTestId('result-consistent')).toBeVisible();
 });
+
+test('含空格与超长字符的事件名按原样参与计算', async ({ page }) => {
+  const spaced = '靠港 3 号泊位';
+  const longName = `${'泊'.repeat(40)}码头`;
+  await page.getByTestId('row-0-id').fill('1');
+  await page.getByTestId('row-0-u').fill(spaced);
+  await page.getByTestId('row-0-v').fill(longName);
+  await page.getByTestId('row-0-c').fill('-2');
+  await page.getByTestId('row-1-id').fill('2');
+  await page.getByTestId('row-1-u').fill(longName);
+  await page.getByTestId('row-1-v').fill(spaced);
+  await page.getByTestId('row-1-c').fill('1');
+
+  await expect(page.getByTestId('compute-button')).toBeEnabled();
+  await page.getByTestId('compute-button').click();
+  await expect(page.getByTestId('result-cycle')).toBeVisible();
+  await expect(page.getByTestId('cycle-step-0')).toContainText(
+    `date(${longName}) − date(${spaced}) ≤ -2`,
+  );
+  await expect(page.getByTestId('cycle-step-1')).toContainText(
+    `date(${spaced}) − date(${longName}) ≤ 1`,
+  );
+  await expect(page.getByTestId('cycle-total')).toContainText('总和小于零');
+});
+
+test('上限规模（60 事件 / 120 断言）即时返回最短矛盾链', async ({ page }) => {
+  test.setTimeout(120_000);
+  // 60 环 + 60 条平行边：唯一的简单环是 60 环，但平行边使朴素枚举组合爆炸。
+  const rows: { id: string; u: string; v: string; c: string }[] = [];
+  for (let i = 0; i < 60; i++) {
+    rows.push({ id: String(i + 1), u: `e${i}`, v: `e${(i + 1) % 60}`, c: i === 0 ? '-1' : '0' });
+  }
+  for (let i = 0; i < 60; i++) {
+    rows.push({ id: String(61 + i), u: `e${i}`, v: `e${(i + 1) % 60}`, c: '5' });
+  }
+  for (let i = 0; i < rows.length; i++) {
+    if (i >= 3) await page.getByTestId('add-row').click();
+    await page.getByTestId(`row-${i}-id`).fill(rows[i].id);
+    await page.getByTestId(`row-${i}-u`).fill(rows[i].u);
+    await page.getByTestId(`row-${i}-v`).fill(rows[i].v);
+    await page.getByTestId(`row-${i}-c`).fill(rows[i].c);
+  }
+
+  await expect(page.getByTestId('batch-counter')).toContainText('120 条断言 / 60 个事件');
+  await page.getByTestId('compute-button').click();
+  await expect(page.getByTestId('result-cycle')).toBeVisible();
+  await expect(page.getByTestId('cycle-meta')).toContainText('60 条边');
+  await expect(page.getByTestId('cycle-total')).toContainText('累计总和 = -1');
+  await expect(page.getByTestId('cycle-total')).toContainText('总和小于零');
+});

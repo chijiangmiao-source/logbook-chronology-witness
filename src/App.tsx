@@ -68,7 +68,7 @@ export default function App() {
         </p>
         <ul className="rules">
           <li>编号匹配 <code>[1-9][0-9]{'{0,5}'}</code>，整批唯一，按整数数值比较；</li>
-          <li>事件名区分大小写（1–32 个非空白字符）；</li>
+          <li>事件名区分大小写，非空即可（可含空格、长度不限），按原样参与计算；</li>
           <li>c 为整数，范围 {C_MIN} 至 {C_MAX}；</li>
           <li>每批 1–{MAX_EVENTS} 个事件、1–{MAX_ASSERTIONS} 条断言；任一非法行均阻止计算。</li>
         </ul>
